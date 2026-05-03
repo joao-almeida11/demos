@@ -1,0 +1,89 @@
+# /etc/systemd/system/fastify-api.service
+#
+# Manages the Fastify Node.js process.
+# systemd handles:
+#   - Start on boot
+#   - Restart on crash (with back-off)
+#   - Log to journald (use: journalctl -u fastify-api -f)
+#   - Resource limits and sandboxing
+#
+# Install:
+#   sudo cp fastify-api.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable fastify-api
+#   sudo systemctl start  fastify-api
+#   sudo systemctl status fastify-api
+
+[Unit]
+Description=Fastify API
+Documentation=https://github.com/yourorg/yourrepo
+After=network.target
+
+[Service]
+# ── Process identity ─────────────────────────────────────────────────────────
+# Run as a dedicated non-root user for security.
+# Create with: sudo useradd -r -s /sbin/nologin nodeapp
+User=nodeapp
+Group=nodeapp
+
+# ── Working directory & binary ────────────────────────────────────────────────
+WorkingDirectory=/opt/api
+
+# Use the full path to node. Check yours with: which node
+# If using nvm system-wide, point at the specific version's path instead.
+ExecStart=/usr/bin/node --max-old-space-size=512 dist/server.js
+
+# ── Restart policy ────────────────────────────────────────────────────────────
+# Restart on any non-zero exit code or signal (but not clean exits or SIGTERM).
+Restart=on-failure
+RestartSec=5s
+
+# Maximum restarts in a time window before systemd gives up and marks failed.
+# 5 crashes within 60s → stop trying (prevents a crash loop from hammering disk).
+StartLimitBurst=5
+StartLimitIntervalSec=60s
+
+# ── Environment ───────────────────────────────────────────────────────────────
+# Prefer a separate EnvironmentFile for secrets; never commit it to git.
+# Format: one KEY=VALUE per line, no quotes needed.
+Environment=NODE_ENV=production
+Environment=PORT=3000
+EnvironmentFile=-/opt/api/.env
+
+# ── Resource limits ───────────────────────────────────────────────────────────
+# Each open file/socket counts against LimitNOFILE.
+# 100 concurrent users with 125 MB uploads = potentially 100 open file handles
+# plus sockets. 65535 is a safe ceiling.
+LimitNOFILE=65535
+
+# Cap memory. With streaming uploads you shouldn't need much heap, but set a
+# ceiling to prevent a runaway process from OOM-killing the whole server.
+# Adjust upward if your app legitimately needs more.
+MemoryMax=1G
+MemorySwapMax=0      # Don't let it swap — swap with large uploads = disaster
+
+# ── Timeouts ─────────────────────────────────────────────────────────────────
+# How long systemd waits for the process to start before declaring failure.
+TimeoutStartSec=30s
+
+# How long systemd waits after sending SIGTERM before sending SIGKILL.
+# Set long enough for in-flight 125 MB uploads to complete gracefully.
+# 300s = 5 minutes — generous but safe.
+TimeoutStopSec=300s
+
+# ── Sandboxing (security hardening) ──────────────────────────────────────────
+# These don't affect functionality but reduce the blast radius of a compromise.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+
+# The API needs to write to its upload directory. Whitelist it here.
+# This ALSO means you need to ensure /opt/api/uploads exists and is
+# owned by nodeapp.
+ReadWritePaths=/opt/api/uploads /opt/api/logs
+
+# Prevent writing to /home, /root, etc.
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target
