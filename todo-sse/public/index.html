@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SSE Todo Demo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@300;400;600&display=swap" rel="stylesheet" />
+  <style>
+    /* ── Reset & tokens ───────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0d0f;
+      --surface:   #141418;
+      --border:    #2a2a32;
+      --accent:    #00e5a0;
+      --accent-dim:#00e5a022;
+      --warn:      #ff6b35;
+      --text:      #e8e8ec;
+      --muted:     #6b6b7a;
+      --mono:      'IBM Plex Mono', monospace;
+      --sans:      'IBM Plex Sans', sans-serif;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      grid-template-rows: auto 1fr;
+      gap: 0;
+    }
+
+    /* ── Header ───────────────────────────────────────────────────── */
+    header {
+      grid-column: 1 / -1;
+      border-bottom: 1px solid var(--border);
+      padding: 18px 32px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    header h1 {
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .15em;
+      text-transform: uppercase;
+      color: var(--text);
+    }
+
+    header h1 span { color: var(--accent); }
+
+    #sse-badge {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: .08em;
+      color: var(--muted);
+      margin-left: auto;
+      transition: color .3s;
+    }
+
+    #sse-badge.connected { color: var(--accent); }
+    #sse-badge.error     { color: var(--warn); }
+
+    .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      flex-shrink: 0;
+    }
+    .dot.pulse {
+      animation: pulse 1.8s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity: 1; transform: scale(1); }
+      50%      { opacity: .4; transform: scale(.7); }
+    }
+
+    #client-count {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      margin-left: 8px;
+    }
+
+    /* ── Main panel ───────────────────────────────────────────────── */
+    main {
+      padding: 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+      overflow-y: auto;
+    }
+
+    /* ── Form ─────────────────────────────────────────────────────── */
+    .form-block {
+      border: 1px solid var(--border);
+      background: var(--surface);
+      padding: 24px;
+    }
+
+    .form-label {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+      color: var(--muted);
+      display: block;
+      margin-bottom: 10px;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 10px;
+    }
+
+    input[type="text"] {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 13px;
+      padding: 10px 14px;
+      outline: none;
+      transition: border-color .2s;
+    }
+    input[type="text"]::placeholder { color: var(--muted); }
+    input[type="text"]:focus { border-color: var(--accent); }
+
+    button {
+      background: var(--accent);
+      color: #000;
+      border: none;
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      padding: 10px 20px;
+      cursor: pointer;
+      transition: opacity .15s;
+    }
+    button:hover  { opacity: .85; }
+    button:active { opacity: .65; }
+    button:disabled { opacity: .35; cursor: not-allowed; }
+
+    /* ── Todo list ────────────────────────────────────────────────── */
+    .section-title {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .2em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    #todo-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .todo-item {
+      border: 1px solid var(--border);
+      background: var(--surface);
+      padding: 14px 16px;
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      animation: slideIn .25s ease;
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .todo-item.highlight {
+      border-color: var(--accent);
+      background: var(--accent-dim);
+      animation: slideIn .25s ease, highlightFade 2.5s ease 0.3s forwards;
+    }
+    @keyframes highlightFade {
+      to { border-color: var(--border); background: var(--surface); }
+    }
+
+    .todo-id {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--muted);
+      flex-shrink: 0;
+      padding-top: 2px;
+    }
+
+    .todo-title {
+      font-size: 14px;
+      font-weight: 300;
+      flex: 1;
+    }
+
+    .todo-time {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--muted);
+      flex-shrink: 0;
+      padding-top: 2px;
+    }
+
+    .empty-state {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted);
+      padding: 20px 0;
+    }
+
+    /* ── SSE event log (right panel) ──────────────────────────────── */
+    aside {
+      border-left: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .aside-header {
+      padding: 18px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .aside-header span {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: .2em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    #clear-log {
+      background: transparent;
+      color: var(--muted);
+      font-size: 10px;
+      padding: 4px 8px;
+      border: 1px solid var(--border);
+    }
+    #clear-log:hover { color: var(--text); border-color: var(--text); background: transparent; }
+
+    #event-log {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-family: var(--mono);
+      font-size: 11px;
+    }
+
+    .log-entry {
+      padding: 8px 10px;
+      border-left: 2px solid transparent;
+      animation: logIn .2s ease;
+    }
+    @keyframes logIn {
+      from { opacity: 0; transform: translateX(6px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    .log-entry.connected   { border-color: var(--accent); color: var(--accent); }
+    .log-entry.todo-create { border-color: #5b8cff; color: #5b8cff; }
+    .log-entry.heartbeat   { border-color: var(--border); color: var(--muted); }
+    .log-entry.error       { border-color: var(--warn); color: var(--warn); }
+
+    .log-time {
+      opacity: .5;
+      margin-right: 6px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ─────────────────────────────────────────────────────────────── -->
+<header>
+  <h1><span>//</span> SSE TODO DEMO</h1>
+  <div id="sse-badge">
+    <div class="dot" id="dot"></div>
+    <span id="sse-status">CONNECTING…</span>
+  </div>
+  <span id="client-count"></span>
+</header>
+
+<!-- ── Main ───────────────────────────────────────────────────────────────── -->
+<main>
+
+  <div class="form-block">
+    <label class="form-label" for="todo-input">New task</label>
+    <div class="input-row">
+      <input type="text" id="todo-input" placeholder="e.g. Deploy to production" autocomplete="off" />
+      <button id="add-btn">+ Add</button>
+    </div>
+  </div>
+
+  <div>
+    <div class="section-title">Tasks — <span id="todo-count">0</span></div>
+    <div id="todo-list">
+      <span class="empty-state">// no tasks yet</span>
+    </div>
+  </div>
+
+</main>
+
+<!-- ── SSE event log sidebar ──────────────────────────────────────────────── -->
+<aside>
+  <div class="aside-header">
+    <span>SSE Event Log</span>
+    <button id="clear-log">clear</button>
+  </div>
+  <div id="event-log"></div>
+</aside>
+
+<script>
+  // ── Helpers ──────────────────────────────────────────────────────────────
+
+  const $ = id => document.getElementById(id)
+
+  function ts() {
+    return new Date().toLocaleTimeString('en-GB', { hour12: false })
+  }
+
+  function addLog(type, text) {
+    const el = document.createElement('div')
+    el.className = `log-entry ${type}`
+    el.innerHTML = `<span class="log-time">${ts()}</span>${text}`
+    $('event-log').prepend(el)
+  }
+
+  function renderTodo(todo, highlight = false) {
+    const existing = $('todo-list').querySelector('.empty-state')
+    if (existing) existing.remove()
+
+    const el = document.createElement('div')
+    el.className = 'todo-item' + (highlight ? ' highlight' : '')
+    el.id = `todo-${todo.id}`
+
+    const shortId = todo.id.slice(0, 8)
+    const time = new Date(todo.createdAt).toLocaleTimeString('en-GB', { hour12: false })
+
+    el.innerHTML = `
+      <span class="todo-id">#${shortId}</span>
+      <span class="todo-title">${escapeHtml(todo.title)}</span>
+      <span class="todo-time">${time}</span>
+    `
+
+    $('todo-list').prepend(el)
+    $('todo-count').textContent = $('todo-list').querySelectorAll('.todo-item').length
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+  }
+
+  // ── Load existing todos ───────────────────────────────────────────────────
+
+  async function loadTodos() {
+    const res = await fetch('/todos')
+    const data = await res.json()
+    // render oldest first so newest ends up on top after prepend
+    data.slice().reverse().forEach(t => renderTodo(t, false))
+  }
+
+  await loadTodos()
+
+  // ── SSE connection ────────────────────────────────────────────────────────
+  // The browser's native EventSource API handles:
+  //   • Automatic reconnection (with back-off)
+  //   • Sending Last-Event-ID header on reconnect
+  //   • Heartbeat (keeps the TCP connection alive through proxies)
+
+  const es = new EventSource('/events')
+
+  es.addEventListener('connected', e => {
+    const badge   = $('sse-badge')
+    const dot     = $('dot')
+    const status  = $('sse-status')
+
+    badge.className = 'connected'
+    dot.classList.add('pulse')
+    status.textContent = 'CONNECTED'
+
+    const payload = JSON.parse(e.data)
+    addLog('connected', `connected · ${payload.totalTodos} existing task(s)`)
+  })
+
+  es.addEventListener('todo:created', e => {
+    const todo = JSON.parse(e.data)
+
+    // Only highlight tasks created by *other* tabs; we render our own
+    // immediately on form submit for snappy UX
+    if (!document.getElementById(`todo-${todo.id}`)) {
+      renderTodo(todo, true)
+      addLog('todo-create', `todo:created → "${escapeHtml(todo.title)}"`)
+    } else {
+      addLog('todo-create', `todo:created (self) → "${escapeHtml(todo.title)}"`)
+    }
+  })
+
+  es.onerror = () => {
+    $('sse-badge').className = 'error'
+    $('dot').classList.remove('pulse')
+    $('sse-status').textContent = 'RECONNECTING…'
+    addLog('error', 'connection lost – retrying…')
+  }
+
+  // ── Create todo ───────────────────────────────────────────────────────────
+
+  async function createTodo() {
+    const input = $('todo-input')
+    const title = input.value.trim()
+    if (!title) return
+
+    const btn = $('add-btn')
+    btn.disabled = true
+    input.disabled = true
+
+    try {
+      const res = await fetch('/todos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title }),
+      })
+
+      if (!res.ok) throw new Error(await res.text())
+
+      const todo = await res.json()
+
+      // Optimistic render (no highlight – this is our own action)
+      renderTodo(todo, false)
+      addLog('todo-create', `POST /todos → 201 created`)
+
+      input.value = ''
+    } catch (err) {
+      addLog('error', `error: ${err.message}`)
+    } finally {
+      btn.disabled = false
+      input.disabled = false
+      input.focus()
+    }
+  }
+
+  $('add-btn').addEventListener('click', createTodo)
+  $('todo-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') createTodo()
+  })
+
+  $('clear-log').addEventListener('click', () => {
+    $('event-log').innerHTML = ''
+  })
+</script>
+</body>
+</html>
